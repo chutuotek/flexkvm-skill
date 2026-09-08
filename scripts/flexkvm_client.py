@@ -39,7 +39,7 @@ from typing import List, Optional, Union
 
 DEFAULT_FLEXKVM_PORT = 443
 MAX_EVENTS = 32          # device-side per-request limit
-MAX_TEXT_LENGTH = 1024   # device-side text event limit
+MAX_TEXT_LENGTH = 512    # device-side text event limit
 
 # py3 urllib3 warnings type
 try:
@@ -175,7 +175,8 @@ class FlexKVMClient:
 
         Returns:
             API response JSON {"code": 0, "applied": N} or
-            {"code": <err>, "applied": N, "error": <msg>}.
+            {"code": 0, "applied": N, "error": <msg>} when the batch stopped
+            early (e.g. "event failed", "cancelled", "request timeout").
         """
         self._validate_events(events)
         result = self._request_json(
@@ -188,6 +189,17 @@ class FlexKVMClient:
         if result.get("code", 0) != 0:
             raise RuntimeError(f"FlexKVM control failed: {result}")
         return result
+
+    def cancel(self) -> dict:
+        """
+        Abort the currently executing control batch (idempotent).
+
+        Returns:
+            {"code": 0, "status": 0, "cancelled": bool}; cancelled is False when
+            no batch was running. The aborted control() call returns
+            applied + error: "cancelled".
+        """
+        return self._request_json("POST", "/api/v1/agent/cancel", timeout=10)
 
     def delay(self, milliseconds: int) -> dict:
         """Pause for the specified number of milliseconds (0..5000)."""
@@ -233,7 +245,7 @@ class FlexKVMClient:
         Input text (synchronous on the device; printable ASCII only).
 
         Args:
-            content: Text to type, 1..1024 printable ASCII characters.
+            content: Text to type, 1..512 printable ASCII characters.
         """
         self._validate_text_content(content)
         return self.control([{"type": "text", "value": content}])
@@ -247,11 +259,14 @@ class FlexKVMClient:
         """
         if not isinstance(keys, list) or not keys:
             raise ValueError("hotkey keys must be a non-empty list")
-        if len(keys) > 7:  # 6 non-modifier keys + modifiers
-            raise ValueError("hotkey accepts at most 6 non-modifier keys")
         for k in keys:
             if not isinstance(k, str) or not k:
                 raise ValueError(f"invalid hotkey key name: {k!r}")
+        # Device limit: at most 6 non-modifier keys; modifiers are unlimited
+        modifiers = {"ctrl", "control", "shift", "alt", "win", "meta", "cmd"}
+        normal_count = sum(1 for k in keys if k not in modifiers)
+        if normal_count > 6:
+            raise ValueError("hotkey accepts at most 6 non-modifier keys")
         return self.control([{"type": "hotkey", "keys": keys}])
 
     def key_combo(self, *keys: str, post_delay: int = 100) -> dict:
@@ -309,6 +324,7 @@ if __name__ == "__main__":
         print("  click <x> <y> [button]  - Click at position (0-1 absolute coords)")
         print("  scroll <dy>             - Scroll mouse wheel")
         print("  hotkey <key1> <key2>... - Send a key combination")
+        print("  cancel                  - Abort the in-flight control batch")
         print()
         print("Environment:")
         print("  FlexKVM_IP - FlexKVM device IP (required, e.g. 192.168.x.x)")
@@ -330,6 +346,11 @@ if __name__ == "__main__":
     elif cmd == "state":
         import json
         print(json.dumps(client.state(), indent=2, ensure_ascii=False))
+
+    elif cmd == "cancel":
+        result = client.cancel()
+        print(f"Cancelled: {result.get('cancelled')}")
+        print(f"Response: {result}")
 
     elif cmd == "text":
         if len(sys.argv) < 3:
