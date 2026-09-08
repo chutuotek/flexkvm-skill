@@ -12,7 +12,8 @@ mouse events to the machine connected to your FlexKVM IP-KVM device.
 - ⌨️ **Keyboard control**: Atomic hotkeys (modifiers + key names) and Enter-style
   single keys
 - 📝 **Text input**: Synchronous completion — the device finishes typing before
-  returning; up to 1024 characters per event
+  returning; up to 512 characters per event
+- 🛑 **Cancel**: Abort an in-flight control batch from another connection
 - ⏱️ **Delay control**: Fine-grained pacing for app launch / page load waits
 
 ## Quick Start
@@ -52,6 +53,7 @@ When executing, read the environment variables, compose the base URL
 - State: `GET /api/v1/agent/state`
 - Screenshot: `GET /api/v1/agent/snapshot`
 - Control: `POST /api/v1/agent/control`
+- Cancel: `POST /api/v1/agent/cancel`
 - All requests carry `Authorization: Bearer ${FlexKVM_TOKEN}`
 
 The device uses a self-signed TLS certificate — clients must skip certificate
@@ -95,6 +97,9 @@ client.run_command("notepad")
 # Hotkey combinations
 client.key_combo("ctrl", "c")       # Copy
 client.key_combo("alt", "tab")      # Switch window
+
+# Abort a long-running control batch from another connection
+client.cancel()
 ```
 
 #### Example JSON files
@@ -133,11 +138,12 @@ flexkvm-skill/
 | click | `{"type":"click","button":"left","x":0.5,"y":0.5}` | Single click |
 | dblclick | `{"type":"dblclick","button":"left","x":0.5,"y":0.5}` | Double click |
 | scroll | `{"type":"scroll","dy":-3}` | Vertical scroll [-127,127] |
-| text | `{"type":"text","value":"hello"}` | Synchronous printable-ASCII text |
+| text | `{"type":"text","value":"hello"}` | Synchronous printable-ASCII text (≤512 chars) |
 | hotkey | `{"type":"hotkey","keys":["ctrl","c"]}` | Atomic key combination |
 | delay | `{"type":"delay","ms":1000}` | Pause (0..5000ms) |
 
-**Request limits**: at most 32 events, total execution under 60 seconds.
+**Request limits**: at most 32 events, total execution under 60 seconds. A
+running batch can be aborted with `POST /api/v1/agent/cancel`.
 
 ## Synchronous Text — The Key Difference
 

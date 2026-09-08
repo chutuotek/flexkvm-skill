@@ -54,7 +54,8 @@ When executing this skill, follow this order:
 3. For the device/agent state, call: `GET /api/v1/agent/state`
 4. For screenshots, call: `GET /api/v1/agent/snapshot`
 5. For control, call: `POST /api/v1/agent/control`
-6. All HTTP requests must include the header: `Authorization: Bearer ${FlexKVM_TOKEN}`
+6. To cancel an in-flight control batch, call: `POST /api/v1/agent/cancel`
+7. All HTTP requests must include the header: `Authorization: Bearer ${FlexKVM_TOKEN}`
 
 > **Note**:
 > - `FlexKVM_IP` and `FlexKVM_TOKEN` in `SKILL.md` are variable names only —
@@ -85,7 +86,8 @@ Read FlexKVM_IP and FlexKVM_TOKEN
     HTTPS interface (provided by FlexKVM agent module):
     ├── State endpoint:     GET  /api/v1/agent/state
     ├── Screenshot endpoint:GET  /api/v1/agent/snapshot
-    └── Control endpoint:   POST /api/v1/agent/control
+    ├── Control endpoint:   POST /api/v1/agent/control
+    └── Cancel endpoint:    POST /api/v1/agent/cancel
 ```
 
 ## API Reference
@@ -168,16 +170,53 @@ Send sequences of mouse, keyboard, and text input control commands.
 }
 ```
 
-- `code`: 0 = success, non-zero = failure
+- `code`: 0 = the batch ran to completion or stopped on an event-level error
+  (HTTP 200); non-zero = the request itself was rejected before execution
 - `applied`: number of events applied before the request stopped
-- On mid-sequence failure the response also carries an `error` field describing
-  the failing event; check both `code` and `applied`.
+- On mid-sequence failure the response carries an `error` field describing the
+  failing event (`"event failed"` when the failure has no specific description,
+  `"cancelled"` when the batch was aborted, `"request timeout"` when the 60s
+  budget ran out); check the presence of `error`, not only `code`
 
 **Request limits** (strict, validated on the device):
 - At most **32 events** per request
 - Total execution time must stay under **60 seconds**
 - Events execute in order; on error or timeout the sequence stops and returns
   the partial result
+- An in-flight batch can be aborted from another connection with the cancel
+  endpoint (checked at each event boundary)
+
+### 4. Cancel Control
+
+Abort the **currently executing** `control` batch. Idempotent, and a no-op when
+no batch is running.
+
+| Property | Value |
+|:---|:---|
+| URL | `https://${FlexKVM_IP}/api/v1/agent/cancel` |
+| Method | POST |
+| Body | none |
+
+**Example**:
+```bash
+curl -ks -X POST "https://${FlexKVM_IP}/api/v1/agent/cancel" \
+     -H "Authorization: Bearer ${FlexKVM_TOKEN}"
+```
+
+**Response**:
+```json
+{
+  "code": 0,
+  "status": 0,
+  "cancelled": true
+}
+```
+
+- `cancelled`: `true` = an active batch was flagged and will stop at its next
+  event boundary; `false` = nothing was running
+- The aborted `control` request returns `applied` plus `error: "cancelled"`
+- Cancellation latency is bounded by one event: `text` is the longest (≈15s for
+  a full 512-character payload), while `delay` is sliced to ≤50ms
 
 ## Event Types
 
@@ -195,7 +234,7 @@ resolution.
 | `x` | number | [0.00, 1.00] | Absolute X coordinate |
 | `y` | number | [0.00, 1.00] | Absolute Y coordinate |
 
-**Format**: `{"type": "click", "button": <string>, "x": <float>, "y": <float>}`
+**Format**: `{"type": "click" | "dblclick", "button": <string>, "x": <float>, "y": <float>}`
 
 | Field | Type | Description |
 |:---|:---|:---|
@@ -221,7 +260,7 @@ is required (unlike interfaces that return immediately).
 
 | Field | Type | Description |
 |:---|:---|:---|
-| `value` | string | Text to input, 1..1024 characters |
+| `value` | string | Text to input, 1..512 characters |
 
 **Character set restrictions** (rejected by the device):
 - Only printable ASCII: `32` (Space) ~ `126` (`~`)
@@ -329,10 +368,11 @@ Pause execution to give the target machine time to respond.
 
 ### 3. Long Text Input Strategy
 
-Text up to 1024 characters can be sent in a single `text` event — the device
-completes it synchronously before returning. No chunking is required. For very
-long content, split into multiple `text` events with short delays only if you
-observe key drops on slow target machines:
+Text up to 512 characters can be sent in a single `text` event — the device
+completes it synchronously before returning. No chunking is required. A full
+512-character payload takes ≈15s, which counts against the 60s request budget.
+For very long content, split into multiple `text` events with short delays only
+if you observe key drops on slow target machines:
 
 ```json
 {
@@ -351,9 +391,11 @@ observe key drops on slow target machines:
 - Use `hotkey` with `["enter"]` rather than text-embedded newlines
 
 ### 5. Error Handling
-- Check `code` — non-zero indicates failure
-- Check `applied` to see how many events ran before the failure; resume the
-  sequence from the failed event
+- An `error` field in the response means the batch stopped early; `applied`
+  tells you how many events ran, so resume from the failed event
+- `code` is non-zero only when the request itself was rejected (bad body, agent
+  disabled, etc.) — the HTTP status carries the same verdict
+- `error: "cancelled"` means another client aborted the batch
 - If snapshot fails, check `mode` in the state endpoint (`idle` requires an
   enabled agent and a video signal)
 - 403 = Agent service disabled; 401 = invalid/expired API key — regenerate a
@@ -370,6 +412,7 @@ observe key drops on slow target machines:
 | Coordinates inaccurate | UI scaled / resolution changed | Use screenshots + normalized coords |
 | Garbled text | IME in wrong state | Switch target to English input method first |
 | Events stop early | Mid-sequence event failed | Read `applied` and resume from that event |
+| Batch will not stop | Long `text`/`delay` in flight | `POST /api/v1/agent/cancel` from another connection |
 | Connection refused | Wrong IP / HTTPS not reachable | Check `FlexKVM_IP` connectivity |
 
 ## Helper Scripts
@@ -433,15 +476,24 @@ class FlexKVMClient:
         )
         return resp.json()
 
+    def cancel(self) -> dict:
+        resp = self.session.post(f"{self.url}/api/v1/agent/cancel", timeout=10, verify=False)
+        return resp.json()
+
     def text(self, content: str) -> dict:
         return self.control([{"type": "text", "value": content}])
 ```
 
 See `scripts/flexkvm_client.py` for the full wrapper
-(`click`/`move`/`scroll`/`hotkey`/`key_combo`/`run_command` helpers included).
+(`click`/`move`/`scroll`/`hotkey`/`key_combo`/`run_command`/`cancel` helpers
+included).
 
 ## Related Resources
 
 - **scripts/**: Helper scripts for common operations
 - **examples/**: Typical automation task examples
 - **references/key_names.md**: Complete hotkey key-name reference table
+- **MCP**: the same agent surface is also exposed as JSON-RPC at
+  `POST /api/v1/mcp` (tools: `state`, `screenshot`, `type_text`, `press_key`,
+  `mouse_move`, `mouse_click`, `mouse_scroll`; `notifications/cancelled` aborts
+  an in-flight batch) — see the device API docs for details

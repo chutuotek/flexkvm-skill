@@ -3,7 +3,7 @@
   "events": [
     {
       "type": "text",
-      "value": "This is a long text that is typed synchronously by the FlexKVM device. Up to 1024 printable ASCII characters are accepted in a single event, so no manual chunking is needed."
+      "value": "This is a long text that is typed synchronously by the FlexKVM device. Up to 512 printable ASCII characters are accepted in a single event, so no manual chunking is needed."
     },
     {
       "type": "delay",

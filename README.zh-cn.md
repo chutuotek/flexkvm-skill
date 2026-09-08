@@ -8,7 +8,8 @@
 - 📸 **屏幕截图**: 获取被控机实时屏幕图像（JPEG 原始字节 + `X-Resolution` 分辨率头）
 - 🖱️ **鼠标控制**: 归一化绝对坐标 `[0.0, 1.0]`，单击 / 双击 / 滚动
 - ⌨️ **键盘控制**: 原子快捷键（修饰键 + 键名）与单键（Enter/Esc 等）
-- 📝 **文本输入**: **同步完成语义** —— 设备输完才返回，单事件支持最长 1024 字符
+- 📝 **文本输入**: **同步完成语义** —— 设备输完才返回，单事件支持最长 512 字符
+- 🛑 **取消控制**: 可从另一连接中止正在执行的 control 批次
 - ⏱️ **延时控制**: 应用启动 / 页面加载等待的节奏控制
 
 ## 快速开始
@@ -49,6 +50,7 @@ FlexKVM agent API：
 - 状态查询：`GET /api/v1/agent/state`
 - 截图接口：`GET /api/v1/agent/snapshot`
 - 控制接口：`POST /api/v1/agent/control`
+- 取消控制：`POST /api/v1/agent/cancel`
 - 所有请求必须带请求头：`Authorization: Bearer ${FlexKVM_TOKEN}`
 - Agent 未启用 → `403`；API Key 缺失/错误 → `401`
 
@@ -88,6 +90,9 @@ client.run_command("notepad")
 # 快捷键组合
 client.key_combo("ctrl", "c")    # 复制
 client.key_combo("alt", "tab")   # 切换窗口
+
+# 从另一连接中止耗时的 control 批次
+client.cancel()
 ```
 
 #### 使用示例 JSON
@@ -126,12 +131,13 @@ flexkvm-skill/
 | click | `{"type":"click","button":"left","x":0.5,"y":0.5}` | 单击 |
 | dblclick | `{"type":"dblclick","button":"left","x":0.5,"y":0.5}` | 双击 |
 | scroll | `{"type":"scroll","dy":-3}` | 垂直滚动 [-127,127] |
-| text | `{"type":"text","value":"hello"}` | 同步可打印 ASCII 文本 |
+| text | `{"type":"text","value":"hello"}` | 同步可打印 ASCII 文本（≤512 字符） |
 | hotkey | `{"type":"hotkey","keys":["ctrl","c"]}` | 原子快捷键 |
 | delay | `{"type":"delay","ms":1000}` | 延时（0..5000ms） |
 
 **请求限制**：单次最多 32 条事件，总执行时间不超过 60 秒，顺序执行；
-中途失败返回 `applied`（已执行条数）+ `error`。
+中途失败返回 `applied`（已执行条数）+ `error`。执行中的批次可用
+`POST /api/v1/agent/cancel` 中止（事件边界生效）。
 
 ## 关键差异：同步文本
 
@@ -147,4 +153,5 @@ FlexKVM 的 `text` 事件由设备内部同步输入（paste 通道 30ms/字符�
 ## 协议真相源
 
 接口契约以 `api/http/README.md`（FlexKVM 仓库）为准，本技能与其保持同步：
-鉴权 `Bearer sk-*`、快照返回裸 JPEG、事件字段（`value`/`dy`/`ms`/`keys`）。
+鉴权 `Bearer sk-*`、快照返回裸 JPEG、事件字段（`value`/`dy`/`ms`/`keys`）、
+取消接口 `POST /api/v1/agent/cancel`。
