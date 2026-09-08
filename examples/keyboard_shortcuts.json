@@ -1,0 +1,37 @@
+{
+  "description": "Common keyboard shortcuts demo (Ctrl+C, Ctrl+V, Alt+Tab)",
+  "events": [
+    {
+      "type": "hotkey",
+      "keys": ["ctrl", "c"]
+    },
+    {
+      "type": "delay",
+      "ms": 300
+    },
+    {
+      "type": "hotkey",
+      "keys": ["ctrl", "v"]
+    },
+    {
+      "type": "delay",
+      "ms": 500
+    },
+    {
+      "type": "hotkey",
+      "keys": ["alt", "tab"]
+    },
+    {
+      "type": "delay",
+      "ms": 500
+    },
+    {
+      "type": "hotkey",
+      "keys": ["win"]
+    },
+    {
+      "type": "delay",
+      "ms": 500
+    }
+  ]
+}

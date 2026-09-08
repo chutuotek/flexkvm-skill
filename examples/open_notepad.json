@@ -1,0 +1,33 @@
+{
+  "description": "Open Notepad and type Hello World",
+  "events": [
+    {
+      "type": "hotkey",
+      "keys": ["win", "r"]
+    },
+    {
+      "type": "delay",
+      "ms": 500
+    },
+    {
+      "type": "text",
+      "value": "notepad"
+    },
+    {
+      "type": "hotkey",
+      "keys": ["enter"]
+    },
+    {
+      "type": "delay",
+      "ms": 1500
+    },
+    {
+      "type": "text",
+      "value": "Hello World from FlexKVM"
+    },
+    {
+      "type": "delay",
+      "ms": 300
+    }
+  ]
+}

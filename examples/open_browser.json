@@ -1,0 +1,48 @@
+{
+  "description": "Open Chrome browser and visit a website",
+  "events": [
+    {
+      "type": "hotkey",
+      "keys": ["win", "r"]
+    },
+    {
+      "type": "delay",
+      "ms": 500
+    },
+    {
+      "type": "text",
+      "value": "chrome"
+    },
+    {
+      "type": "hotkey",
+      "keys": ["enter"]
+    },
+    {
+      "type": "delay",
+      "ms": 3000
+    },
+    {
+      "type": "move",
+      "x": 0.5,
+      "y": 0.08
+    },
+    {
+      "type": "click",
+      "button": "left",
+      "x": 0.5,
+      "y": 0.08
+    },
+    {
+      "type": "text",
+      "value": "example.com"
+    },
+    {
+      "type": "hotkey",
+      "keys": ["enter"]
+    },
+    {
+      "type": "delay",
+      "ms": 2000
+    }
+  ]
+}
