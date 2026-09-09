@@ -65,7 +65,7 @@ verification (`curl -k`, Python `verify=False`).
 
 ```bash
 # Send control commands
-./scripts/send_control.sh '{"events":[{"type":"text","value":"hello"},{"type":"delay","ms":300}]}'
+./scripts/send_control.sh '{"events":[{"type":"keyboard","action":"text","value":"hello"},{"type":"delay","ms":300}]}'
 
 # Capture a screenshot
 curl -ks -X GET "https://${FlexKVM_IP}/api/v1/agent/snapshot" \
@@ -98,6 +98,19 @@ client.run_command("notepad")
 client.key_combo("ctrl", "c")       # Copy
 client.key_combo("alt", "tab")      # Switch window
 
+# Press-and-hold (held state persists across requests)
+client.mouse_down(0.2, 0.5)         # press (atomic move + press)
+client.move(0.4, 0.6)               # separate request, button still held
+client.mouse_up()                   # release
+
+client.drag(0.2, 0.5, 0.8, 0.5, duration_ms=400)  # composite drag
+
+client.key_down("shift")            # Shift+click via separate requests
+client.click(0.5, 0.5)
+client.key_up("shift")
+
+client.release_all()                # clear all held state (cancel does not)
+
 # Abort a long-running control batch from another connection
 client.cancel()
 ```
@@ -125,25 +138,34 @@ flexkvm-skill/
 │   ├── open_notepad.json       # Open Notepad and type a message
 │   ├── mouse_demo.json         # Mouse move / click / dblclick / scroll
 │   ├── keyboard_shortcuts.json # Hotkey demos (Ctrl+C/V, Alt+Tab, Win)
-│   └── long_text_input.json    # Long synchronous text input
+│   ├── long_text_input.json    # Long synchronous text input
+│   ├── mouse_drag.json         # Drag & drop (composite drag + manual hold)
+│   └── key_hold.json           # Hold interactions (Shift+click, auto-repeat)
 └── references/
-    └── key_names.md            # Hotkey key-name reference table
+    └── key_names.md            # Hotkey/hold key-name reference table
 ```
 
 ## Event Types Cheat Sheet
 
 | Event | Example | Description |
 |:---|:---|:---|
-| move | `{"type":"move","x":0.5,"y":0.5}` | Absolute mouse move |
-| click | `{"type":"click","button":"left","x":0.5,"y":0.5}` | Single click |
-| dblclick | `{"type":"dblclick","button":"left","x":0.5,"y":0.5}` | Double click |
-| scroll | `{"type":"scroll","dy":-3}` | Vertical scroll [-127,127] |
-| text | `{"type":"text","value":"hello"}` | Synchronous printable-ASCII text (≤512 chars) |
-| hotkey | `{"type":"hotkey","keys":["ctrl","c"]}` | Atomic key combination |
+| mouse move | `{"type":"mouse","action":"move","x":0.5,"y":0.5}` | Absolute mouse move |
+| mouse click | `{"type":"mouse","action":"click","button":"left","x":0.5,"y":0.5}` | Single click (`"dblclick":true` = double click) |
+| mouse scroll | `{"type":"mouse","action":"scroll","dy":-3}` | Vertical scroll [-127,127] |
+| mouse down | `{"type":"mouse","action":"down","button":"left","x":0.2,"y":0.5}` | Press and hold a button (`x`/`y` optional) |
+| mouse up | `{"type":"mouse","action":"up","button":"left"}` | Release a held button |
+| mouse drag | `{"type":"mouse","action":"drag","from":[0.2,0.5],"to":[0.8,0.5]}` | One-call drag (device-interpolated moves) |
+| keyboard text | `{"type":"keyboard","action":"text","value":"hello"}` | Synchronous printable-ASCII text (≤512 chars) |
+| keyboard hotkey | `{"type":"keyboard","action":"hotkey","keys":["ctrl","c"]}` | Atomic key combination |
+| keyboard down | `{"type":"keyboard","action":"down","key":"shift"}` | Press and hold a key/modifier |
+| keyboard up | `{"type":"keyboard","action":"up","key":"shift"}` | Release a held key/modifier |
+| release_all | `{"type":"release_all"}` | Release all held buttons and keys |
 | delay | `{"type":"delay","ms":1000}` | Pause (0..5000ms) |
 
 **Request limits**: at most 32 events, total execution under 60 seconds. A
-running batch can be aborted with `POST /api/v1/agent/cancel`.
+running batch can be aborted with `POST /api/v1/agent/cancel`. Held state
+(`mouse down`/`keyboard down`) persists across requests; `cancel` does not
+release it — send `release_all` to reset.
 
 ## Synchronous Text — The Key Difference
 

@@ -59,7 +59,7 @@ FlexKVM agent API：
 #### Bash 方式
 ```bash
 # 发送控制指令
-./scripts/send_control.sh '{"events":[{"type":"text","value":"hello"},{"type":"delay","ms":300}]}'
+./scripts/send_control.sh '{"events":[{"type":"keyboard","action":"text","value":"hello"},{"type":"delay","ms":300}]}'
 
 # 获取截图
 curl -ks -X GET "https://${FlexKVM_IP}/api/v1/agent/snapshot" \
@@ -91,6 +91,19 @@ client.run_command("notepad")
 client.key_combo("ctrl", "c")    # 复制
 client.key_combo("alt", "tab")   # 切换窗口
 
+# 按住类交互（按住状态跨请求保持）
+client.mouse_down(0.2, 0.5)      # 按下（移动+按下原子收口）
+client.move(0.4, 0.6)            # 另一个请求，按键仍保持
+client.mouse_up()                # 释放
+
+client.drag(0.2, 0.5, 0.8, 0.5, duration_ms=400)  # 复合拖拽（设备端插值）
+
+client.key_down("shift")         # Shift+点击：拆成多个请求
+client.click(0.5, 0.5)
+client.key_up("shift")
+
+client.release_all()             # 清空所有按住状态（cancel 不自动释放）
+
 # 从另一连接中止耗时的 control 批次
 client.cancel()
 ```
@@ -118,26 +131,35 @@ flexkvm-skill/
 │   ├── open_notepad.json       # 打开记事本并输入文字
 │   ├── mouse_demo.json         # 鼠标移动/单击/双击/滚动演示
 │   ├── keyboard_shortcuts.json # 快捷键演示（Ctrl+C/V、Alt+Tab、Win）
-│   └── long_text_input.json    # 长文本同步输入演示
+│   ├── long_text_input.json    # 长文本同步输入演示
+│   ├── mouse_drag.json         # 拖拽演示（复合 drag + 手动按住）
+│   └── key_hold.json           # 按住类交互演示（Shift+点击、自动重复）
 └── references/
-    └── key_names.md            # hotkey 键名参考表
+    └── key_names.md            # hotkey/hold 键名参考表
 ```
 
 ## 事件类型速查
 
 | 事件 | 示例 | 说明 |
 |:---|:---|:---|
-| move | `{"type":"move","x":0.5,"y":0.5}` | 绝对移动 |
-| click | `{"type":"click","button":"left","x":0.5,"y":0.5}` | 单击 |
-| dblclick | `{"type":"dblclick","button":"left","x":0.5,"y":0.5}` | 双击 |
-| scroll | `{"type":"scroll","dy":-3}` | 垂直滚动 [-127,127] |
-| text | `{"type":"text","value":"hello"}` | 同步可打印 ASCII 文本（≤512 字符） |
-| hotkey | `{"type":"hotkey","keys":["ctrl","c"]}` | 原子快捷键 |
+| mouse move | `{"type":"mouse","action":"move","x":0.5,"y":0.5}` | 绝对移动 |
+| mouse click | `{"type":"mouse","action":"click","button":"left","x":0.5,"y":0.5}` | 单击（`"dblclick":true` 双击） |
+| mouse scroll | `{"type":"mouse","action":"scroll","dy":-3}` | 垂直滚动 [-127,127] |
+| mouse down | `{"type":"mouse","action":"down","button":"left","x":0.2,"y":0.5}` | 按下并保持（`x`/`y` 可选） |
+| mouse up | `{"type":"mouse","action":"up","button":"left"}` | 释放按住的按键 |
+| mouse drag | `{"type":"mouse","action":"drag","from":[0.2,0.5],"to":[0.8,0.5]}` | 一键拖拽（设备端插值移动） |
+| keyboard text | `{"type":"keyboard","action":"text","value":"hello"}` | 同步可打印 ASCII 文本（≤512 字符） |
+| keyboard hotkey | `{"type":"keyboard","action":"hotkey","keys":["ctrl","c"]}` | 原子快捷键 |
+| keyboard down | `{"type":"keyboard","action":"down","key":"shift"}` | 按住键/修饰键 |
+| keyboard up | `{"type":"keyboard","action":"up","key":"shift"}` | 释放按住的键 |
+| release_all | `{"type":"release_all"}` | 释放所有按住的键鼠状态 |
 | delay | `{"type":"delay","ms":1000}` | 延时（0..5000ms） |
 
 **请求限制**：单次最多 32 条事件，总执行时间不超过 60 秒，顺序执行；
 中途失败返回 `applied`（已执行条数）+ `error`。执行中的批次可用
-`POST /api/v1/agent/cancel` 中止（事件边界生效）。
+`POST /api/v1/agent/cancel` 中止（事件边界生效）。`mouse down`/`keyboard
+down` 的按住状态跨请求保持；`cancel` 不会自动释放，异常中断后发
+`release_all` 兜底。
 
 ## 关键差异：同步文本
 

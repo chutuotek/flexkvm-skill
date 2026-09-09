@@ -24,10 +24,25 @@ Example:
 
     client.run_command("notepad")
 
+    # Press-and-hold (held state persists across requests)
+    client.mouse_down(0.2, 0.5)        # press (atomic move + press)
+    client.move(0.4, 0.6)              # drag while held, separate request ok
+    client.mouse_up()                  # release
+
+    client.drag(0.2, 0.5, 0.8, 0.5)    # composite drag (device interpolates)
+
+    client.key_down("shift")           # Shift+click via separate requests
+    client.click(0.5, 0.5)
+    client.key_up("shift")
+
+    client.release_all()               # safety net: clear all held state
+
 Notes:
 - Self-signed TLS on the default HTTPS port (443): all requests skip certificate verification
 - Text events complete synchronously on the device; no chunking required
 - Coordinates are normalized [0.0, 1.0], origin at top-left
+- Held buttons/keys persist across requests until released; cancel does NOT
+  auto-release — call release_all() after an interrupted drag
 """
 
 import os
@@ -170,7 +185,8 @@ class FlexKVMClient:
 
         Args:
             events: List of event dicts, e.g.
-                [{"type": "click", "button": "left", "x": 0.5, "y": 0.5},
+                [{"type": "mouse", "action": "click", "button": "left",
+                  "x": 0.5, "y": 0.5},
                  {"type": "delay", "ms": 300}]
 
         Returns:
@@ -211,7 +227,8 @@ class FlexKVMClient:
         """Move the mouse to absolute coordinates [0.0, 1.0]."""
         self._validate_unit_interval("x", x)
         self._validate_unit_interval("y", y)
-        return self.control([{"type": "move", "x": x, "y": y}])
+        return self.control([{"type": "mouse", "action": "move",
+                              "x": x, "y": y}])
 
     def click(self, x: float, y: float, button: str = "left",
               double: bool = False, post_delay: int = 200) -> dict:
@@ -229,8 +246,8 @@ class FlexKVMClient:
         self._validate_unit_interval("y", y)
         if button not in ("left", "right", "middle"):
             raise ValueError(f"button must be left/right/middle, got: {button}")
-        events = [{"type": "dblclick" if double else "click",
-                   "button": button, "x": x, "y": y}]
+        events = [{"type": "mouse", "action": "click",
+                   "button": button, "x": x, "y": y, "dblclick": double}]
         if post_delay > 0:
             events.append({"type": "delay", "ms": post_delay})
         return self.control(events)
@@ -238,7 +255,8 @@ class FlexKVMClient:
     def scroll(self, dy: int = 0) -> dict:
         """Scroll the mouse wheel vertically (dy in [-127, 127])."""
         self._validate_dy("dy", dy)
-        return self.control([{"type": "scroll", "dy": dy}])
+        return self.control([{"type": "mouse", "action": "scroll",
+                              "dy": dy}])
 
     def text(self, content: str) -> dict:
         """
@@ -248,7 +266,8 @@ class FlexKVMClient:
             content: Text to type, 1..512 printable ASCII characters.
         """
         self._validate_text_content(content)
-        return self.control([{"type": "text", "value": content}])
+        return self.control([{"type": "keyboard", "action": "text",
+                              "value": content}])
 
     def hotkey(self, keys: List[str]) -> dict:
         """
@@ -267,11 +286,113 @@ class FlexKVMClient:
         normal_count = sum(1 for k in keys if k not in modifiers)
         if normal_count > 6:
             raise ValueError("hotkey accepts at most 6 non-modifier keys")
-        return self.control([{"type": "hotkey", "keys": keys}])
+        return self.control([{"type": "keyboard", "action": "hotkey",
+                              "keys": keys}])
 
     def key_combo(self, *keys: str, post_delay: int = 100) -> dict:
         """Alias for hotkey with positional key names."""
         return self.hotkey(list(keys))
+
+    def mouse_down(self, x: Optional[float] = None, y: Optional[float] = None,
+                   button: str = "left") -> dict:
+        """
+        Press and hold a mouse button (held until mouse_up/release_all).
+
+        Held state persists across requests. Optional x/y must be given
+        together: when present the pointer moves first (atomic move+press,
+        useful for starting a drag without a separate move event).
+
+        Args:
+            x: Optional absolute X coordinate [0.0, 1.0].
+            y: Optional absolute Y coordinate [0.0, 1.0].
+            button: "left" (default), "right" or "middle".
+        """
+        if (x is None) != (y is None):
+            raise ValueError("x and y must be provided together")
+        if button not in ("left", "right", "middle"):
+            raise ValueError(f"button must be left/right/middle, got: {button}")
+        event = {"type": "mouse", "action": "down", "button": button}
+        if x is not None:
+            self._validate_unit_interval("x", x)
+            self._validate_unit_interval("y", y)
+            event["x"] = x
+            event["y"] = y
+        return self.control([event])
+
+    def mouse_up(self, button: str = "left") -> dict:
+        """
+        Release a held mouse button (idempotent).
+
+        Only the named button is released; other held buttons stay held.
+        """
+        if button not in ("left", "right", "middle"):
+            raise ValueError(f"button must be left/right/middle, got: {button}")
+        return self.control([{"type": "mouse", "action": "up",
+                              "button": button}])
+
+    def key_down(self, key: str) -> dict:
+        """
+        Press and hold a key (held until key_up/release_all).
+
+        Held state persists across requests, e.g. key_down("shift") +
+        click() in a later request performs Shift+click.
+
+        Args:
+            key: Single key or modifier name (see references/key_names.md),
+                e.g. "shift", "ctrl", "a", "f5".
+        """
+        if not isinstance(key, str) or not key:
+            raise ValueError(f"invalid key name: {key!r}")
+        return self.control([{"type": "keyboard", "action": "down",
+                              "key": key}])
+
+    def key_up(self, key: str) -> dict:
+        """Release a held key (idempotent)."""
+        if not isinstance(key, str) or not key:
+            raise ValueError(f"invalid key name: {key!r}")
+        return self.control([{"type": "keyboard", "action": "up",
+                              "key": key}])
+
+    def release_all(self) -> dict:
+        """
+        Release every held mouse button and key (idempotent safety net).
+
+        Send this whenever an operation is interrupted mid-drag: cancel
+        does NOT auto-release held state.
+        """
+        return self.control([{"type": "release_all"}])
+
+    def drag(self, from_x: float, from_y: float, to_x: float, to_y: float,
+             button: str = "left", duration_ms: int = 300) -> dict:
+        """
+        Composite drag: press at the start, interpolate moves to the end,
+        then release (single device-side event; preferred over manual
+        mouse down/move/up composition — many target UIs drop drags
+        when pointer jumps are too coarse).
+
+        On cancel/interrupt the button stays held; use release_all().
+
+        Args:
+            from_x: Start X coordinate [0.0, 1.0].
+            from_y: Start Y coordinate [0.0, 1.0].
+            to_x: End X coordinate [0.0, 1.0].
+            to_y: End Y coordinate [0.0, 1.0].
+            button: "left" (default), "right" or "middle".
+            duration_ms: Interpolation duration 0..5000 (0 = point-jump
+                drag; intermediate samples are still sent).
+        """
+        for name, value in (("from_x", from_x), ("from_y", from_y),
+                            ("to_x", to_x), ("to_y", to_y)):
+            self._validate_unit_interval(name, value)
+        if button not in ("left", "right", "middle"):
+            raise ValueError(f"button must be left/right/middle, got: {button}")
+        if not 0 <= duration_ms <= 5000:
+            raise ValueError("duration_ms must be in [0, 5000]")
+        return self.control([{
+            "type": "mouse", "action": "drag", "button": button,
+            "from": [from_x, from_y], "to": [to_x, to_y],
+            "duration_ms": duration_ms,
+        }])
 
     def run_command(self, command: str, wait: int = 1500) -> dict:
         """
@@ -285,10 +406,10 @@ class FlexKVMClient:
         if not (0 <= wait <= 5000):
             raise ValueError("wait must be in [0, 5000]")
         return self.control([
-            {"type": "hotkey", "keys": ["win", "r"]},
+            {"type": "keyboard", "action": "hotkey", "keys": ["win", "r"]},
             {"type": "delay", "ms": wait},
-            {"type": "text", "value": command},
-            {"type": "hotkey", "keys": ["enter"]},
+            {"type": "keyboard", "action": "text", "value": command},
+            {"type": "keyboard", "action": "hotkey", "keys": ["enter"]},
         ])
 
     def type_key(self, key: str) -> dict:
@@ -325,6 +446,13 @@ if __name__ == "__main__":
         print("  scroll <dy>             - Scroll mouse wheel")
         print("  hotkey <key1> <key2>... - Send a key combination")
         print("  cancel                  - Abort the in-flight control batch")
+        print("  mousedown [x] [y] [btn] - Press and hold a mouse button")
+        print("  mouseup [button]        - Release a held mouse button")
+        print("  keydown <key>           - Press and hold a key")
+        print("  keyup <key>             - Release a held key")
+        print("  release_all             - Release all held buttons and keys")
+        print("  drag <x1> <y1> <x2> <y2> [ms] [button]")
+        print("                          - Composite drag (device interpolates)")
         print()
         print("Environment:")
         print("  FlexKVM_IP - FlexKVM device IP (required, e.g. 192.168.x.x)")
@@ -335,6 +463,9 @@ if __name__ == "__main__":
         print('  python flexkvm_client.py run notepad')
         print('  python flexkvm_client.py click 0.5 0.5')
         print('  python flexkvm_client.py hotkey win r')
+        print('  python flexkvm_client.py drag 0.2 0.5 0.8 0.5 400')
+        print('  python flexkvm_client.py keydown shift')
+        print('  python flexkvm_client.py release_all')
         sys.exit(1)
 
     cmd = sys.argv[1]
@@ -391,6 +522,48 @@ if __name__ == "__main__":
         keys = sys.argv[2:]
         result = client.hotkey(keys)
         print(f"Hotkey {'+'.join(keys)} sent")
+        print(f"Response: {result}")
+
+    elif cmd == "mousedown":
+        x = float(sys.argv[2]) if len(sys.argv) > 2 else None
+        y = float(sys.argv[3]) if len(sys.argv) > 3 else None
+        button = sys.argv[4] if len(sys.argv) > 4 else "left"
+        result = client.mouse_down(x, y, button=button)
+        print(f"Response: {result}")
+
+    elif cmd == "mouseup":
+        button = sys.argv[2] if len(sys.argv) > 2 else "left"
+        result = client.mouse_up(button=button)
+        print(f"Response: {result}")
+
+    elif cmd == "keydown":
+        if len(sys.argv) < 3:
+            print("Error: key name required")
+            sys.exit(1)
+        result = client.key_down(sys.argv[2])
+        print(f"Key {sys.argv[2]} held")
+        print(f"Response: {result}")
+
+    elif cmd == "keyup":
+        if len(sys.argv) < 3:
+            print("Error: key name required")
+            sys.exit(1)
+        result = client.key_up(sys.argv[2])
+        print(f"Response: {result}")
+
+    elif cmd == "release_all":
+        result = client.release_all()
+        print(f"Response: {result}")
+
+    elif cmd == "drag":
+        if len(sys.argv) < 6:
+            print("Error: drag requires x1 y1 x2 y2")
+            sys.exit(1)
+        x1, y1, x2, y2 = (float(v) for v in sys.argv[2:6])
+        duration_ms = int(sys.argv[6]) if len(sys.argv) > 6 else 300
+        button = sys.argv[7] if len(sys.argv) > 7 else "left"
+        result = client.drag(x1, y1, x2, y2, button=button,
+                             duration_ms=duration_ms)
         print(f"Response: {result}")
 
     else:

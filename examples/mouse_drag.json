@@ -1,0 +1,48 @@
+{
+  "description": "Drag & drop demo: composite drag event (device-side interpolation, preferred) plus manual mouse down/move/up composition. Held state persists across requests; release_all clears everything if an operation is interrupted. Adjust coordinates to the target UI.",
+  "events": [
+    {
+      "type": "mouse",
+      "action": "drag",
+      "button": "left",
+      "from": [0.2, 0.5],
+      "to": [0.6, 0.5],
+      "duration_ms": 400
+    },
+    {
+      "type": "delay",
+      "ms": 300
+    },
+    {
+      "type": "mouse",
+      "action": "down",
+      "button": "left",
+      "x": 0.3,
+      "y": 0.7
+    },
+    {
+      "type": "mouse",
+      "action": "move",
+      "x": 0.4,
+      "y": 0.7
+    },
+    {
+      "type": "mouse",
+      "action": "move",
+      "x": 0.5,
+      "y": 0.7
+    },
+    {
+      "type": "mouse",
+      "action": "up",
+      "button": "left"
+    },
+    {
+      "type": "delay",
+      "ms": 200
+    },
+    {
+      "type": "release_all"
+    }
+  ]
+}

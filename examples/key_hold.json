@@ -1,0 +1,54 @@
+{
+  "description": "Key hold demo: hold Shift across separate requests for Shift+click (multi-select), hold a letter key for auto-repeat, then release_all as safety net. Adjust coordinates/keys to the target UI.",
+  "events": [
+    {
+      "type": "keyboard",
+      "action": "down",
+      "key": "shift"
+    },
+    {
+      "type": "mouse",
+      "action": "click",
+      "button": "left",
+      "x": 0.4,
+      "y": 0.4
+    },
+    {
+      "type": "mouse",
+      "action": "click",
+      "button": "left",
+      "x": 0.6,
+      "y": 0.4
+    },
+    {
+      "type": "keyboard",
+      "action": "up",
+      "key": "shift"
+    },
+    {
+      "type": "delay",
+      "ms": 300
+    },
+    {
+      "type": "keyboard",
+      "action": "down",
+      "key": "a"
+    },
+    {
+      "type": "delay",
+      "ms": 400
+    },
+    {
+      "type": "keyboard",
+      "action": "up",
+      "key": "a"
+    },
+    {
+      "type": "delay",
+      "ms": 200
+    },
+    {
+      "type": "release_all"
+    }
+  ]
+}

@@ -4,8 +4,9 @@ description: >
   A universal skill for the FlexKVM agent control interface, providing
   screen capture and mouse/keyboard automation via HTTPS API on IP-KVM devices.
   Suitable for remote server management, automated testing, and unattended operations.
-  Supports absolute-coordinate mouse control, clicks, scrolling, text input,
-  hotkeys, and delays with synchronous completion semantics.
+  Supports absolute-coordinate mouse control, clicks, press-and-hold (drag),
+  scrolling, text input, hotkeys, held keys, and delays with synchronous
+  completion semantics.
 metadata: { "openclaw": { "emoji": "🖥️" }}
 ---
 
@@ -154,9 +155,9 @@ Send sequences of mouse, keyboard, and text input control commands.
 ```json
 {
   "events": [
-    {"type": "move",    "x": 0.5, "y": 0.5},
-    {"type": "click",   "button": "left", "x": 0.5, "y": 0.5},
-    {"type": "text",    "value": "Hello World"},
+    {"type": "mouse", "action": "move",    "x": 0.5, "y": 0.5},
+    {"type": "mouse", "action": "click",   "button": "left", "x": 0.5, "y": 0.5},
+    {"type": "keyboard", "action": "text",    "value": "Hello World"},
     {"type": "delay",   "ms": 300}
   ]
 }
@@ -222,19 +223,19 @@ curl -ks -X POST "https://${FlexKVM_IP}/api/v1/agent/cancel" \
 
 ### Mouse Events
 
-Simulate absolute mouse movement, clicks, double-clicks, and scrolling.
-Coordinates are normalized `[0.0, 1.0]`, origin at top-left; the device maps
-them to HID absolute coordinates (0..32767) internally, so they adapt to any
-resolution.
+Simulate absolute mouse movement, clicks, double-clicks, press-and-hold, and
+scrolling. Coordinates are normalized `[0.0, 1.0]`, origin at top-left; the
+device maps them to HID absolute coordinates (0..32767) internally, so they
+adapt to any resolution.
 
-**Format**: `{"type": "move", "x": <float>, "y": <float>}`
+**Format**: `{"type": "mouse", "action": "move", "x": <float>, "y": <float>}`
 
 | Field | Type | Range | Description |
 |:---|:---|:---|:---|
 | `x` | number | [0.00, 1.00] | Absolute X coordinate |
 | `y` | number | [0.00, 1.00] | Absolute Y coordinate |
 
-**Format**: `{"type": "click" | "dblclick", "button": <string>, "x": <float>, "y": <float>}`
+**Format**: `{"type": "mouse", "action": "click", "button": <string>, "x": <float>, "y": <float>, "dblclick": <bool>}`
 
 | Field | Type | Description |
 |:---|:---|:---|
@@ -242,13 +243,88 @@ resolution.
 | `x`, `y` | number | Absolute coordinates [0.00, 1.00] |
 
 The click sequence (move → press → 20ms hold → release) is executed atomically
-by the device; `dblclick` repeats it once after a 60ms interval.
+by the device; `"dblclick": true` repeats it once after a 60ms interval.
 
-**Format**: `{"type": "scroll", "dy": <int>}`
+**Format**: `{"type": "mouse", "action": "scroll", "dy": <int>}`
 
 | Field | Type | Range | Description |
 |:---|:---|:---|:---|
 | `dy` | integer | [-127, 127] | Vertical scroll ticks, positive scrolls down |
+
+### Hold Events (mouse down/up · keyboard down/up · release_all)
+
+Press-and-hold primitives for drag & drop, rubber-band selection, sliders,
+long-press menus, and modifier+click (e.g. Shift+click range select).
+
+**Held state persists across requests** — you can split a drag into separate
+control calls (press → screenshot to observe → move → release).
+
+**Mouse**:
+
+**Format**: `{"type": "mouse", "action": "down" | "up", "button": <string>, "x": <float>, "y": <float>}`
+
+| Field | Type | Description |
+|:---|:---|:---|
+| `button` | string | `left` (default) / `right` / `middle` |
+| `x`, `y` | number | Optional (pair them): move here first, then update the button |
+
+The button state is a persistent bitmask: multiple buttons can be held at once
+(e.g. hold `left` + `right`), and `mouse up` releases only the named button.
+
+**Keyboard**:
+
+**Format**: `{"type": "keyboard", "action": "down" | "up", "key": <string>}`
+
+| Field | Type | Description |
+|:---|:---|:---|
+| `key` | string | Modifier (`ctrl`/`shift`/`alt`/`win`) or key name, same table as `hotkey` |
+
+Up to 6 regular keys can be held simultaneously (HID limit); held modifiers
+combine freely.
+
+**Release all**:
+
+**Format**: `{"type": "release_all"}`
+
+Releases every held mouse button and held key in one event. Use it as a safety
+reset: `cancel` stops a batch but does **not** auto-release held state, so send
+`release_all` whenever an operation is interrupted mid-drag.
+
+**Drag (composite, preferred)**:
+
+**Format**: `{"type": "mouse", "action": "drag", "button": <string>, "from": [<x>, <y>], "to": [<x>, <y>], "duration_ms": <int>}`
+
+| Field | Type | Description |
+|:---|:---|:---|
+| `button` | string | `left` (default) / `right` / `middle` |
+| `from`, `to` | `[x, y]` arrays | Normalized `[0.00, 1.00]` start and end points |
+| `duration_ms` | integer | 0..5000 (default 300) — movement time; the device interpolates smooth intermediate moves (~20ms steps) |
+
+One event runs the whole gesture: press at `from` → 100ms dwell → interpolated
+moves → 50ms dwell → release. Prefer it over manual `mouse down`/`move`/`up`
+composition — many target UIs drop the drag when pointer jumps are too coarse.
+On cancel/interrupt the button stays held (same semantics as `mouse down`); send
+`release_all` to reset.
+
+**Manual composition** (when you need to observe mid-drag via screenshot):
+
+```json
+{
+  "events": [
+    {"type": "mouse", "action": "down", "button": "left", "x": 0.2, "y": 0.5},
+    {"type": "delay", "ms": 150},
+    {"type": "mouse", "action": "move", "x": 0.8, "y": 0.5},
+    {"type": "delay", "ms": 150},
+    {"type": "mouse", "action": "up", "button": "left"}
+  ]
+}
+```
+
+**Shift+click range select example** (across two requests):
+```json
+{"events": [{"type": "keyboard", "action": "down", "key": "shift"}]}
+{"events": [{"type": "mouse", "action": "click", "x": 0.5, "y": 0.9}, {"type": "keyboard", "action": "up", "key": "shift"}]}
+```
 
 ### Text Event (text)
 
@@ -256,7 +332,7 @@ Input a text string at the current cursor position. **The device types the text
 synchronously and returns only after it is complete** — no external delay idiom
 is required (unlike interfaces that return immediately).
 
-**Format**: `{"type": "text", "value": "<text>"}`
+**Format**: `{"type": "keyboard", "action": "text", "value": "<text>"}`
 
 | Field | Type | Description |
 |:---|:---|:---|
@@ -264,14 +340,14 @@ is required (unlike interfaces that return immediately).
 
 **Character set restrictions** (rejected by the device):
 - Only printable ASCII: `32` (Space) ~ `126` (`~`)
-- Tab and Enter are **not** allowed inside `text` — use a `hotkey` event for them
+- Tab and Enter are **not** allowed inside `text` — use a `keyboard hotkey` event for them
 
 ### Hotkey Event (hotkey)
 
 Press a key combination (modifier + keys) and release, executed atomically.
 Press/release pairing and ordering are handled by the device.
 
-**Format**: `{"type": "hotkey", "keys": ["ctrl", "c"]}`
+**Format**: `{"type": "keyboard", "action": "hotkey", "keys": ["ctrl", "c"]}`
 
 | Field | Type | Description |
 |:---|:---|:---|
@@ -289,18 +365,26 @@ Press/release pairing and ordering are handled by the device.
 **Key names** (non-modifier):
 - Letters: `a` ~ `z`
 - Digits: `0` ~ `9`
-- Special: `enter`, `esc`/`escape`, `backspace`, `tab`, `space`, `minus`, `equal`,
-  `delete`, `home`, `end`, `pageup`, `pagedown`, `left`, `right`, `up`, `down`
+- Special: `enter`, `esc`/`escape`, `backspace`, `tab`, `space`,
+  `delete`, `insert`, `pause`, `menu`, `printscreen`/`sysrq`,
+  `home`, `end`, `pageup`, `pagedown`, `left`, `right`, `up`, `down`
+- Lock keys: `capslock`, `numlock`, `scrolllock` (down+up toggles)
+- Punctuation: `minus`, `equal`, `leftbracket`, `rightbracket`, `backslash`,
+  `semicolon`, `quote`, `grave`, `comma`, `dot`, `slash` — shifted symbols use
+  `shift` + key, e.g. `["shift", "equal"]` = `+`, `["shift", "1"]` = `!`
 - Functions: `f1` ~ `f12`
+- Numpad: `numpad0` ~ `numpad9`, `numpad_enter`, `numpad_dot`, `numpad_add`,
+  `numpad_subtract`, `numpad_multiply`, `numpad_divide`
+- Media: `mute`, `volumeup`, `volumedown`, `playpause`, `stop`, `previous`, `next`
 
 See `references/key_names.md` for the complete table.
 
 **Examples**:
 ```json
-{"type": "hotkey", "keys": ["win", "r"]}          // Win+R (Run dialog)
-{"type": "hotkey", "keys": ["ctrl", "c"]}         // Copy
-{"type": "hotkey", "keys": ["win"]}               // Open Start menu
-{"type": "hotkey", "keys": ["enter"]}             // Press Enter
+{"type": "keyboard", "action": "hotkey", "keys": ["win", "r"]}          // Win+R (Run dialog)
+{"type": "keyboard", "action": "hotkey", "keys": ["ctrl", "c"]}         // Copy
+{"type": "keyboard", "action": "hotkey", "keys": ["win"]}               // Open Start menu
+{"type": "keyboard", "action": "hotkey", "keys": ["enter"]}             // Press Enter
 ```
 
 ### Delay Event (delay)
@@ -324,15 +408,15 @@ Pause execution to give the target machine time to respond.
 ```json
 {
   "events": [
-    {"type": "hotkey", "keys": ["win", "r"]},
+    {"type": "keyboard", "action": "hotkey", "keys": ["win", "r"]},
     {"type": "delay", "ms": 500},
-    {"type": "text", "value": "chrome"},
-    {"type": "hotkey", "keys": ["enter"]},
+    {"type": "keyboard", "action": "text", "value": "chrome"},
+    {"type": "keyboard", "action": "hotkey", "keys": ["enter"]},
     {"type": "delay", "ms": 3000},
-    {"type": "move", "x": 0.5, "y": 0.08},
-    {"type": "click", "button": "left", "x": 0.5, "y": 0.08},
-    {"type": "text", "value": "example.com"},
-    {"type": "hotkey", "keys": ["enter"]},
+    {"type": "mouse", "action": "move", "x": 0.5, "y": 0.08},
+    {"type": "mouse", "action": "click", "button": "left", "x": 0.5, "y": 0.08},
+    {"type": "keyboard", "action": "text", "value": "example.com"},
+    {"type": "keyboard", "action": "hotkey", "keys": ["enter"]},
     {"type": "delay", "ms": 2000}
   ]
 }
@@ -377,9 +461,9 @@ if you observe key drops on slow target machines:
 ```json
 {
   "events": [
-    {"type": "text", "value": "This is a long text that needs"},
+    {"type": "keyboard", "action": "text", "value": "This is a long text that needs"},
     {"type": "delay", "ms": 200},
-    {"type": "text", "value": " to be split for slow targets"},
+    {"type": "keyboard", "action": "text", "value": " to be split for slow targets"},
     {"type": "delay", "ms": 200}
   ]
 }
@@ -481,12 +565,13 @@ class FlexKVMClient:
         return resp.json()
 
     def text(self, content: str) -> dict:
-        return self.control([{"type": "text", "value": content}])
+        return self.control([{"type": "keyboard", "action": "text", "value": content}])
 ```
 
 See `scripts/flexkvm_client.py` for the full wrapper
 (`click`/`move`/`scroll`/`hotkey`/`key_combo`/`run_command`/`cancel` helpers
-included).
+included, plus the hold primitives `mouse_down`/`mouse_up`/`key_down`/
+`key_up`/`release_all` and the composite `drag`).
 
 ## Related Resources
 
@@ -495,5 +580,7 @@ included).
 - **references/key_names.md**: Complete hotkey key-name reference table
 - **MCP**: the same agent surface is also exposed as JSON-RPC at
   `POST /api/v1/mcp` (tools: `state`, `screenshot`, `type_text`, `press_key`,
-  `mouse_move`, `mouse_click`, `mouse_scroll`; `notifications/cancelled` aborts
-  an in-flight batch) — see the device API docs for details
+  `mouse_move`, `mouse_click`, `mouse_scroll`, `mouse_down`, `mouse_up`,
+  `mouse_drag`, `key_down`, `key_up`, `release_all`, `control` (batch of
+  events); `notifications/cancelled` aborts an in-flight batch) — see the
+  device API docs for details

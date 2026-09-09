@@ -2,7 +2,8 @@
   "description": "Open Chrome browser and visit a website",
   "events": [
     {
-      "type": "hotkey",
+      "type": "keyboard",
+      "action": "hotkey",
       "keys": ["win", "r"]
     },
     {
@@ -10,11 +11,13 @@
       "ms": 500
     },
     {
-      "type": "text",
+      "type": "keyboard",
+      "action": "text",
       "value": "chrome"
     },
     {
-      "type": "hotkey",
+      "type": "keyboard",
+      "action": "hotkey",
       "keys": ["enter"]
     },
     {
@@ -22,22 +25,26 @@
       "ms": 3000
     },
     {
-      "type": "move",
+      "type": "mouse",
+      "action": "move",
       "x": 0.5,
       "y": 0.08
     },
     {
-      "type": "click",
+      "type": "mouse",
+      "action": "click",
       "button": "left",
       "x": 0.5,
       "y": 0.08
     },
     {
-      "type": "text",
+      "type": "keyboard",
+      "action": "text",
       "value": "example.com"
     },
     {
-      "type": "hotkey",
+      "type": "keyboard",
+      "action": "hotkey",
       "keys": ["enter"]
     },
     {

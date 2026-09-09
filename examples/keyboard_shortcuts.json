@@ -2,7 +2,8 @@
   "description": "Common keyboard shortcuts demo (Ctrl+C, Ctrl+V, Alt+Tab)",
   "events": [
     {
-      "type": "hotkey",
+      "type": "keyboard",
+      "action": "hotkey",
       "keys": ["ctrl", "c"]
     },
     {
@@ -10,7 +11,8 @@
       "ms": 300
     },
     {
-      "type": "hotkey",
+      "type": "keyboard",
+      "action": "hotkey",
       "keys": ["ctrl", "v"]
     },
     {
@@ -18,7 +20,8 @@
       "ms": 500
     },
     {
-      "type": "hotkey",
+      "type": "keyboard",
+      "action": "hotkey",
       "keys": ["alt", "tab"]
     },
     {
@@ -26,7 +29,8 @@
       "ms": 500
     },
     {
-      "type": "hotkey",
+      "type": "keyboard",
+      "action": "hotkey",
       "keys": ["win"]
     },
     {

@@ -2,7 +2,8 @@
   "description": "Open Notepad and type Hello World",
   "events": [
     {
-      "type": "hotkey",
+      "type": "keyboard",
+      "action": "hotkey",
       "keys": ["win", "r"]
     },
     {
@@ -10,11 +11,13 @@
       "ms": 500
     },
     {
-      "type": "text",
+      "type": "keyboard",
+      "action": "text",
       "value": "notepad"
     },
     {
-      "type": "hotkey",
+      "type": "keyboard",
+      "action": "hotkey",
       "keys": ["enter"]
     },
     {
@@ -22,7 +25,8 @@
       "ms": 1500
     },
     {
-      "type": "text",
+      "type": "keyboard",
+      "action": "text",
       "value": "Hello World from FlexKVM"
     },
     {

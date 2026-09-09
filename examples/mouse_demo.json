@@ -2,7 +2,8 @@
   "description": "Mouse move, click, double-click and scroll demo",
   "events": [
     {
-      "type": "move",
+      "type": "mouse",
+      "action": "move",
       "x": 0.5,
       "y": 0.5
     },
@@ -11,7 +12,8 @@
       "ms": 200
     },
     {
-      "type": "click",
+      "type": "mouse",
+      "action": "click",
       "button": "left",
       "x": 0.5,
       "y": 0.5
@@ -21,17 +23,20 @@
       "ms": 300
     },
     {
-      "type": "dblclick",
+      "type": "mouse",
+      "action": "click",
       "button": "left",
       "x": 0.6,
-      "y": 0.4
+      "y": 0.4,
+      "dblclick": true
     },
     {
       "type": "delay",
       "ms": 300
     },
     {
-      "type": "scroll",
+      "type": "mouse",
+      "action": "scroll",
       "dy": 3
     },
     {
@@ -39,7 +44,8 @@
       "ms": 200
     },
     {
-      "type": "scroll",
+      "type": "mouse",
+      "action": "scroll",
       "dy": -3
     },
     {
@@ -47,7 +53,8 @@
       "ms": 200
     },
     {
-      "type": "click",
+      "type": "mouse",
+      "action": "click",
       "button": "right",
       "x": 0.3,
       "y": 0.7
