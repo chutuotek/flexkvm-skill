@@ -109,7 +109,7 @@ Query the current agent/keyboard/mouse status before operating.
   "code": 0,
   "enable": true,
   "has_key": true,
-  "mode": "jpeg",
+  "mode": "idle",
   "user_online": false,
   "width": 1920,
   "height": 1080,
@@ -120,9 +120,12 @@ Query the current agent/keyboard/mouse status before operating.
 }
 ```
 
-- `mode`: `jpeg` (AI resident pipeline) / `dual` (H264+JPEG, user online) / `idle` (no pipeline)
+- `mode`: `streaming` (H264 pipeline running, a web user is watching) / `idle` (no pipeline)
 - `mouse_mode`: `absolute` / `relative` (relative mode is unsuitable for AI control)
-- Screenshot and control may fail with `500` when `mode` is `idle` (no pipeline).
+- Screenshots work in both modes: when a pipeline is running the JPEG is taken
+  from it; when `mode` is `idle` a single-frame capture path is built on demand
+  and torn down right after (roughly +50 ms per shot). A snapshot only fails
+  when there is no locked HDMI signal.
 
 ### 2. Screenshot
 
@@ -480,8 +483,9 @@ if you observe key drops on slow target machines:
 - `code` is non-zero only when the request itself was rejected (bad body, agent
   disabled, etc.) — the HTTP status carries the same verdict
 - `error: "cancelled"` means another client aborted the batch
-- If snapshot fails, check `mode` in the state endpoint (`idle` requires an
-  enabled agent and a video signal)
+- If snapshot fails, check that the HDMI input has a locked signal (see the
+  device's own video state); `mode: idle` alone is NOT a failure — snapshots
+  are taken on demand in that state.
 - 403 = Agent service disabled; 401 = invalid/expired API key — regenerate a
   key in Settings → Agent and update `FlexKVM_TOKEN`
 
@@ -491,7 +495,7 @@ if you observe key drops on slow target machines:
 |:---|:---|:---|
 | 403 Forbidden | Agent service disabled | Enable Agent in device settings |
 | 401 Unauthorized | Wrong/removed API key | Regenerate key in Settings → Agent |
-| Snapshot 500 | `mode: idle` / no video signal | Check HDMI input and agent pipeline state |
+| Snapshot 500 | No locked HDMI signal | Check the HDMI source and the device's video state |
 | Control returns `error` | Invalid event field/range | Verify event JSON against this doc |
 | Coordinates inaccurate | UI scaled / resolution changed | Use screenshots + normalized coords |
 | Garbled text | IME in wrong state | Switch target to English input method first |
